@@ -1,10 +1,16 @@
 from airflow.utils.task_group import TaskGroup
 from airflow.operators.python import PythonOperator
 
+from debussy_framework.v2.operators.bigquery import (
+    BigQueryGetMaxFieldOperator,
+    BigQueryGetMinFieldOperator
+)
+
 from debussy_concert.core.motif.motif_base import MotifBase
 from debussy_concert.core.motif.mixins.bigquery_job import BigQueryJobMixin
 from debussy_concert.core.phrase.protocols import PMergeTableMotif
 from debussy_concert.data_ingestion.config.movement_parameters.rdbms_data_ingestion import RdbmsDataIngestionMovementParameters
+from debussy_concert.data_ingestion.config.rdbms_data_ingestion import ConfigRdbmsDataIngestion
 
 
 def build_bigquery_merge_query(
@@ -89,6 +95,8 @@ MERGE = """
 
 
 class MergeBigQueryTableMotif(MotifBase, BigQueryJobMixin, PMergeTableMotif):
+    config: ConfigRdbmsDataIngestion
+
     def __init__(
         self,
         movement_parameters: RdbmsDataIngestionMovementParameters,
@@ -114,7 +122,11 @@ class MergeBigQueryTableMotif(MotifBase, BigQueryJobMixin, PMergeTableMotif):
         build_merge_query >> execute_query
         return task_group
 
-    def build_merge_query(self, dag, task_group) -> PythonOperator:
+    def build_merge_query(
+            self, dag, task_group,
+            partition_field=None,
+            min_partition_value=None,
+            max_partition_value=None) -> PythonOperator:
         pii_columns = ','.join([column.name for column in self.movement_parameters.pii_columns])
         primary_key = self.movement_parameters.primary_key.name
         fields_list = [field.name for field in self.movement_parameters.fields]
@@ -136,9 +148,9 @@ class MergeBigQueryTableMotif(MotifBase, BigQueryJobMixin, PMergeTableMotif):
                 "delta_time_partition": delta_time_partition,
                 "delta_time_value": delta_time_value,
                 "primary_key": primary_key,
-                "partition_field": None,
-                "min_partition_value": None,
-                "max_partition_value": None,
+                "partition_field": partition_field,
+                "min_partition_value": min_partition_value,
+                "max_partition_value": max_partition_value,
                 "fields": fields_list,
             },
             dag=dag,
@@ -146,6 +158,76 @@ class MergeBigQueryTableMotif(MotifBase, BigQueryJobMixin, PMergeTableMotif):
         )
 
         return build_merge_query
+
+
+class MergeIncrementalBigQueryTableMotif(MergeBigQueryTableMotif):
+    def __init__(self, movement_parameters: RdbmsDataIngestionMovementParameters,
+                 delta_label,
+                 delta_date_partition,
+                 delta_date_value,
+                 delta_time_partition,
+                 delta_time_value,
+                 name=None) -> None:
+        self.delta_label = delta_label
+        self.delta_dataset = self.config.environment.landing_dataset
+        self.project_id = self.config.environment.project
+        self.table_id = f"{self.config.table_prefix}_{self.movement_parameters.name}"
+        self.field_id = self.movement_parameters.business_partition_column
+        self.delta_table = f"{self.config.table_prefix}_{self.movement_parameters.name}"
+        self.partition_field = movement_parameters.business_partition_column
+        self.delta_date_partition = delta_date_partition
+        self.delta_date_value = delta_date_value
+        self.delta_time_partition = delta_time_partition
+        self.delta_time_value = delta_time_value
+        super().__init__(movement_parameters, name)
+
+    def build(self, dag, phrase_group):
+        task_group = TaskGroup(group_id=self.name, dag=dag, parent_group=phrase_group)
+
+        get_delta_min_partition_field = self.get_delta_min_partition_field(dag, task_group)
+        get_delta_max_partition_field = self.get_delta_max_partition_field(dag, task_group)
+        min_partition_value = f"{{{{ task_instance.xcom_pull('{get_delta_min_partition_field.task_id}') }}}}"
+        max_partition_value = f"{{{{ task_instance.xcom_pull('{get_delta_max_partition_field.task_id}') }}}}"
+        build_merge_query = self.build_merge_query(dag, task_group, self.partition_field,
+                                                   min_partition_value, max_partition_value)
+        query_macro = f"{{{{ task_instance.xcom_pull('{build_merge_query.task_id}') }}}}"
+        execute_query = self.insert_job_operator(dag, task_group, self.query_configuration(sql_query=query_macro))
+
+        (
+            get_delta_min_partition_field,
+            get_delta_max_partition_field
+        ) >> build_merge_query >> execute_query
+        return task_group
+
+    def get_delta_max_partition_field(self, dag, task_group):
+        get_delta_max_partition_field = BigQueryGetMaxFieldOperator(
+            task_id=f"get_{self.delta_label}_max_partition_field",
+            project_id=self.project_id,
+            dataset_id=self.delta_dataset,
+            table_id=self.delta_table,
+            field_id=self.partition_field,
+            field_type="DATE",
+            where_clause=(f"{self.delta_date_partition} = '{self.delta_date_value}' and "
+                          f"{self.delta_time_partition} = '{self.delta_time_value}'"),
+            dag=dag,
+            task_group=task_group
+        )
+        return get_delta_max_partition_field
+
+    def get_delta_min_partition_field(self, dag, task_group):
+        get_delta_min_partition_field = BigQueryGetMinFieldOperator(
+            task_id=f"get_{self.delta_label}_min_partition_field",
+            project_id=self.project_id,
+            dataset_id=self.delta_dataset,
+            table_id=self.table_id,
+            field_id=self.field_id,
+            field_type="DATE",
+            where_clause=(f"{self.delta_date_partition} = '{self.delta_date_value}' and "
+                          f"{self.delta_time_partition} = '{self.delta_time_value}'"),
+            dag=dag,
+            task_group=task_group
+        )
+        return get_delta_min_partition_field
 
 
 def build_bigquery_append_merge_query(main_table, delta_table, execution_date):
