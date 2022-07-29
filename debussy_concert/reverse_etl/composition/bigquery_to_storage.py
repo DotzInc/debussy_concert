@@ -96,7 +96,7 @@ class ReverseEtlBigQueryToStorageComposition(CompositionBase):
 
     def storage_to_destination_phrase(self, movement_parameters: ReverseEtlMovementParameters):
 
-        destination_file_uri = movement_parameters.destination_object_path
+        destination_file_uri = movement_parameters.destination_uri
         destination_type = movement_parameters.destination_type.lower()
         destination_type_motif_map = {
             'gcs': GCSHook,

@@ -2,7 +2,7 @@ import logging
 
 from airflow.utils.task_group import TaskGroup
 from airflow.operators.python import PythonOperator
-from debussy_framework.v2.operators.basic import StartOperator
+from debussy_framework.v3.operators.basic import StartOperator
 
 from debussy_concert.core.motif.motif_base import MotifBase
 

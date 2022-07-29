@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 
 from debussy_concert.core.config.movement_parameters.base import MovementParametersBase
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -51,11 +52,11 @@ class ReverseEtlMovementParameters(MovementParametersBase):
     reverse_etl_query: str
     reverse_etl_dataset_partition_type: str
     reverse_etl_dataset_partition_field: str
-    extraction_query_from_temp: str
     destination_type: str
     output_config: OutputConfig
-    destination_object_path: str
     destination_connection_id: str
+    extraction_query_from_temp: str
+    destination_uri: str    
 
     def __post_init__(self):
         output_config = output_factory(self.output_config)

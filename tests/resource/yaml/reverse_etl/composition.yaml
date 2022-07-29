@@ -23,7 +23,7 @@ extraction_movements:
       file_name: file_name_test.format
       field_delimiter: field_delimiter_test
     destination_type: destination_type_test
-    destination_object_path: destination_object_path_test
+    destination_uri: destination_object_path_test
     destination_connection_id: destination_connection_id_test
 
 

@@ -1,0 +1,15 @@
+project: modular-aileron-191222
+region: us-central1
+zone: us-central1-a
+reverse_etl_bucket: autodelete_dev_bucket
+landing_bucket: dotz-datalake-dev-l1-landing
+raw_vault_bucket: dotz-datalake-dev-l2-raw-vault
+artifact_bucket: dotz-datalake-dev-artifacts
+staging_bucket: dotz-datalake-dev-l0-staging
+raw_vault_dataset: raw_vault
+raw_dataset: raw
+trusted_dataset: trusted
+reverse_etl_dataset: reverse_etl
+temp_dataset: temp
+data_lakehouse_connection_id: google_cloud_debussy
+ 
